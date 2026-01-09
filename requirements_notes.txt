@@ -1,0 +1,9 @@
+faster-whisper
+langchain-ollama
+reportlab
+loguru
+librosa
+scikit-learn
+numpy
+pathlib
+typing-extensions
