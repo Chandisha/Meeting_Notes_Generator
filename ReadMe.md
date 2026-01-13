@@ -104,5 +104,4 @@ meeting_outputs/
 - **Reasoning**: Anthropic-style prompts on Qwen 2.5.
 
 **Version**: v6.5.0  
-**Status**: Production Ready  
-**Developer**: Antigravity AI Engine
+**Status**: Ongoing 
