@@ -99,7 +99,7 @@ VoiceAI-Rena/
 ├── src/                    # Source code
 │   ├── meeting_note_generator.py  # Core AI Engine (Neural Analysis)
 │   ├── rena_bot_pilot.py          # Google Meet Automation Bot
-│   ├── requirements_notes.txt     # Python dependencies
+│   ├── requirements.txt     # Python dependencies
 │   └── fonts/                     # Hindi (Devanagari) fonts
 ├── meeting_outputs/        # Generated reports and recordings (auto-created)
 └── bot_session/            # Browser profile data (auto-created)
