@@ -90,14 +90,20 @@ You can force a specific transcription language (e.g., Hindi):
 python src/meeting_note_generator.py "path/to/meeting.wav" hi
 ```
 
-### 📓 Mode C: Google Colab Usage
-If you prefer running in the cloud:
-1.  Open `src/meeting_note_generator_colab.py` in a Colab environment.
-2.  Enable **T4 GPU** (Runtime -> Change runtime type).
-3.  Install Ollama and pull the model: `ollama pull qwen2.5:7b`.
-4.  Update the `audio_file` path at the bottom of the script and run.
-
 ---
+
+## 📂 Project Directory Structure
+```text
+VoiceAI-Rena/
+├── README.md               # Main documentation
+├── src/                    # Source code
+│   ├── meeting_note_generator.py  # Core AI Engine (Neural Analysis)
+│   ├── rena_bot_pilot.py          # Google Meet Automation Bot
+│   ├── requirements_notes.txt     # Python dependencies
+│   └── fonts/                     # Hindi (Devanagari) fonts
+├── meeting_outputs/        # Generated reports and recordings (auto-created)
+└── bot_session/            # Browser profile data (auto-created)
+```
 
 ## 📁 Output Directory Structure
 ```text
@@ -116,3 +122,4 @@ meeting_outputs/
 **Version**: v6.5.0  
 **Status**: Production Ready  
 **Developer**: Antigravity AI Engine
+
