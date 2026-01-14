@@ -54,11 +54,10 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 ### 2. Install Dependencies
 ```bash
-# Recommended: Install from requirements file
-pip install -r src/requirements_notes.txt
+# Install all required Python packages
+pip install -r requirements.txt
 
-# Additional requirements for Browser Automation & Diarization
-pip install playwright playwright-stealth nemo_toolkit[asr] torch soundfile
+# Finish browser setup
 playwright install chromium
 ```
 
@@ -96,10 +95,10 @@ python src/meeting_note_generator.py "path/to/meeting.wav" hi
 ```text
 VoiceAI-Rena/
 ├── README.md               # Main documentation
+├── requirements.txt        # All Python dependencies
 ├── src/                    # Source code
 │   ├── meeting_note_generator.py  # Core AI Engine (Neural Analysis)
 │   ├── rena_bot_pilot.py          # Google Meet Automation Bot
-│   ├── requirements.txt     # Python dependencies
 │   └── fonts/                     # Hindi (Devanagari) fonts
 ├── meeting_outputs/        # Generated reports and recordings (auto-created)
 └── bot_session/            # Browser profile data (auto-created)
@@ -122,4 +121,3 @@ meeting_outputs/
 **Version**: v6.5.0  
 **Status**: Production Ready  
 **Developer**: Antigravity AI Engine
-
