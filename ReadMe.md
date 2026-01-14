@@ -52,17 +52,14 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-### 2. Install Core AI Stack
+### 2. Install Dependencies
 ```bash
-# General Requirements
-pip install faster-whisper langchain_ollama loguru reportlab librosa scikit-learn playwright-stealth
+# Recommended: Install from requirements file
+pip install -r src/requirements_notes.txt
 
-# Browser Automation
-pip install playwright
+# Additional requirements for Browser Automation & Diarization
+pip install playwright playwright-stealth nemo_toolkit[asr] torch soundfile
 playwright install chromium
-
-# Neural Diarization (NVIDIA NeMo)
-pip install nemo_toolkit[asr] torch soundfile
 ```
 
 ### 3. Setup Intelligence Hub (Ollama)
@@ -84,8 +81,21 @@ python src/rena_bot_pilot.py "https://meet.google.com/xxx-xxxx-xxx"
 ### 📂 Mode B: File Processor (Manual)
 Process any pre-recorded `.wav` or `.mp3` meeting file:
 ```bash
-python src/meeting_note_generator_claude.py "path/to/meeting.wav"
+python src/meeting_note_generator.py "path/to/meeting.wav"
 ```
+
+**With Language Override:**
+You can force a specific transcription language (e.g., Hindi):
+```bash
+python src/meeting_note_generator.py "path/to/meeting.wav" hi
+```
+
+### 📓 Mode C: Google Colab Usage
+If you prefer running in the cloud:
+1.  Open `src/meeting_note_generator_colab.py` in a Colab environment.
+2.  Enable **T4 GPU** (Runtime -> Change runtime type).
+3.  Install Ollama and pull the model: `ollama pull qwen2.5:7b`.
+4.  Update the `audio_file` path at the bottom of the script and run.
 
 ---
 
@@ -104,4 +114,5 @@ meeting_outputs/
 - **Reasoning**: Anthropic-style prompts on Qwen 2.5.
 
 **Version**: v6.5.0  
-**Status**: Ongoing 
+**Status**: Production Ready  
+**Developer**: Antigravity AI Engine
