@@ -61,7 +61,14 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 3. Setup Intelligence Hub (Ollama)
+### 3. Hindi Support Setup (If you want to use Hindi)
+To enable Hindi summaries in PDF reports:
+1.  Download **Noto Sans Devanagari** from [Google Fonts](https://fonts.google.com/specimen/Noto+Sans+Devanagari).
+2.  Extract the ZIP and locate the file `NotoSansDevanagari-VariableFont_wdth,wght.ttf`.
+3.  Create a folder named `src/fonts/` if it doesn't exist.
+4.  Move the `.ttf` file into `src/fonts/`.
+
+### 4. Setup Intelligence Hub (Ollama)
 Download and run Ollama from [ollama.com](https://ollama.com), then:
 ```bash
 ollama pull qwen2.5:7b
