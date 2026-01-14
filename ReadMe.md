@@ -80,13 +80,13 @@ python src/rena_bot_pilot.py "https://meet.google.com/xxx-xxxx-xxx"
 ### 📂 Mode B: File Processor (Manual)
 Process any pre-recorded `.wav` or `.mp3` meeting file:
 ```bash
-python src/meeting_note_generator.py "path/to/meeting.wav"
+python src/meeting_notes_generator.py "path/to/meeting.wav"
 ```
 
 **With Language Override:**
 You can force a specific transcription language (e.g., Hindi):
 ```bash
-python src/meeting_note_generator.py "path/to/meeting.wav" hi
+python src/meeting_notes_generator.py "path/to/meeting.wav" hi
 ```
 
 ---
@@ -97,7 +97,7 @@ VoiceAI-Rena/
 ├── README.md               # Main documentation
 ├── requirements.txt        # All Python dependencies
 ├── src/                    # Source code
-│   ├── meeting_note_generator.py  # Core AI Engine (Neural Analysis)
+│   ├── meeting_notes_generator.py  # Core AI Engine (Neural Analysis)
 │   ├── rena_bot_pilot.py          # Google Meet Automation Bot
 │   └── fonts/                     # Hindi (Devanagari) fonts
 ├── meeting_outputs/        # Generated reports and recordings (auto-created)
@@ -119,4 +119,5 @@ meeting_outputs/
 - **Reasoning**: Anthropic-style prompts on Qwen 2.5.
 
 **Version**: v6.5.0  
-**Status**: Testing 
+**Status**: Testing
+**Developer**: Chandisha Das
