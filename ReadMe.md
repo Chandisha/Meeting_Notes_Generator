@@ -1,129 +1,115 @@
-# RENA - Meeting Intelligence System (v6.5)
+# 🎙️ RENA: Meeting Intelligence System
 
-**RENA** is a state-of-the-art AI orchestration suite that combines real-time browser automation with deep neural audio analysis. It doesn't just transcribe; it synthesizes "Meeting Intelligence" reports with human-like understanding.
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-UI-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Google Gemini](https://img.shields.io/badge/AI-Google%20Gemini-4285F4?logo=google&logoColor=white)](https://ai.google.dev/)
+[![Ollama](https://img.shields.io/badge/Local%20AI-Ollama-black?logo=ollama&logoColor=white)](https://ollama.com/)
 
----
+**RENA (Responsive Enterprise Note Assistant)** is an advanced AI-powered tool designed to transform raw meeting audio into structured, actionable intelligence. It automates the role of a meeting secretary by transcribing audio, summarizing discussions in multiple languages, extracting action items, and generating professional PDF reports.
 
-## 🚀 The Renaissance of Meeting Notes
+This system features a robust **Hybrid AI Architecture**: it prioritizes cloud-based processing for speed but intelligently switches to local models if internet connectivity fails, ensuring 100% reliability.
 
-Rena uses a sophisticated two-stage pipeline to ensure your meetings are never forgotten:
-1.  **Rena Pilot**: A Playwright-based autonomous agent that joins Google Meet, configures audio routing, and records the session.
-2.  **Rena Intelligence**: A neural engine powered by **NVIDIA NeMo** and **Faster-Whisper** that extracts thematic clusters and action items.
-
----
-
-## 🌟 Premium Features
-
-### 🧠 Neural Speaker Fingerprinting (NVIDIA NeMo)
-Unlike standard tools that guess speakers based on volume, Rena uses the **TitaNet-L** architecture to create "Neural Fingerprints."
-- **Accuracy**: Distinguishes between participants with 95%+ precision.
-- **Privacy**: No audio data ever leaves your computer for speaker identification.
-
-### 🏛️ Hierarchical Contextual Synthesis
-Rena behaves like a strategic consultant. Every report includes:
-- **Executive Narrative**: A professional 4-sentence summary of the strategic roadmap.
-- **Thematic MOM**: Notes grouped by high-level topics (e.g., *Technical Scalability*, *Risk Mitigation*).
-- **Proactive Action Tracker**: Tasks extracted with specific **Owners**, **Deadlines**, and **Priority Labels**.
-
-### 🇮🇳 First-Class Hindi & Hinglish Support
-Optimized for the Indian corporate landscape:
-- Native **Hinglish** transcription (mix of Hindi + English).
-- Professional **Hindi Summary** generation for every meeting.
-- Perfect PDF rendering using **Noto Sans Devanagari**.
+**Developed by:** Chandisha Das
 
 ---
 
-## 🛠️ Infrastructure Requirements
+## 🚀 Key Features
 
-1.  **Python 3.10+**
-2.  **FFmpeg**: Critical for audio recording and conversion.
-3.  **VB-CABLE Driver**: Required for the bot to "hear" the meeting audio on Windows.
-4.  **Ollama**: Local LLM server running `qwen2.5:7b`.
+* **🎧 High-Fidelity Transcription:** Uses `faster-whisper` for accurate, offline speech-to-text conversion with Voice Activity Detection (VAD).
+* **🧠 Hybrid AI Engine:**
+    * **Primary (Cloud):** Leverages **Google Gemini** for high-speed, sophisticated reasoning and summarization.
+    * **Fallback (Local):** Automatically switches to **Ollama (local LLM)** if internet/cloud services are unavailable, ensuring data privacy.
+* **📊 Action Plan Extraction:** Intelligent parsing of conversation to identify specific Tasks, Owners, and Deadlines.
+* **🌐 Bilingual Support:** Generates Executive Summaries in both **English** and **Hindi** (Devanagari script supported in PDF).
+* **📄 Professional PDF Reports:** Auto-generates clean, formatted PDF reports including Minutes of Meeting (MOM), Action Tables, and Full Transcripts.
 
 ---
 
-## 📦 Installation & Setup
+## 🛠️ Tech Stack
 
-### 1. Clone & Environment
-```bash
-git clone https://github.com/your-username/RENA.git
-cd RENA
+* **Language:** Python 3.9+
+* **UI Framework:** Streamlit (for Web Interface)
+* **AI & Machine Learning:**
+    * **ASR (Audio):** `faster-whisper` (OpenAI Whisper implementation)
+    * **LLM (Cloud):** Google GenAI (`google-genai` SDK)
+    * **LLM (Local):** Ollama (`ollama` Python library)
+* **Report Generation:** `reportlab` (PDF creation engine)
+* **Utilities:** `loguru` (Logging), `pathlib`
+
+---
+
+## ⚙️ Installation & Setup
+
+### 1. Prerequisites
+Ensure you have Python installed. You will also need **FFmpeg** installed on your system for audio processing.
+* **Windows:** [Download FFmpeg](https://ffmpeg.org/download.html) and add it to your system PATH.
+* **Mac:** `brew install ffmpeg`
+* **Linux:** `sudo apt install ffmpeg`
+
+### 2. Clone the Repository
+
+git clone [https://github.com/Chandisha/RENA-Meeting-Intelligence-System.git](https://github.com/Chandisha/RENA-Meeting-Intelligence-System.git)
+cd RENA-Meeting-Intelligence-System
+3. Create a Virtual Environment (Recommended)
+Bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-### 2. Install Dependencies
-```bash
-# Install all required Python packages
+# Windows
+venv\Scripts\activate
+# Mac/Linux
+source venv/bin/activate
+4. Install Dependencies
+Bash
 pip install -r requirements.txt
+(Note: Ensure your requirements.txt includes: faster-whisper, google-genai, ollama, reportlab, loguru, streamlit)
 
-# Finish browser setup
-playwright install chromium
-```
+5. Setup Local AI (Optional)
+If you wish to use the Local AI fallback feature:
 
-### 3. Hindi Support Setup (If you want to use Hindi)
-To enable Hindi summaries in PDF reports:
-1.  Download **Noto Sans Devanagari** from [Google Fonts](https://fonts.google.com/specimen/Noto+Sans+Devanagari).
-2.  Extract the ZIP and locate the file `NotoSansDevanagari-VariableFont_wdth,wght.ttf`.
-3.  Create a folder named `fonts/` if it doesn't exist.
-4.  Move the `.ttf` file into `fonts/`.
+Download and install Ollama.
 
-### 4. Setup Intelligence Hub (Ollama)
-Download and run Ollama from [ollama.com](https://ollama.com), then:
-```bash
-ollama pull qwen2.5:7b
-```
+Pull the recommended model:
 
----
+Bash
+ollama pull qwen2.5:32b
+🏃‍♂️ Usage
+Option A: Running the UI (Streamlit)
+To launch the interactive web interface:
 
-## 🕹️ How to Use
+Bash
+streamlit run app.py
+(Upload your audio file, click "Generate Report", and download the resulting PDF)
 
-### 🛫 Mode A: The Live Bot (Autopilot)
-Dispatch Rena to join any Google Meet link, record, and automatically generate notes:
-```bash
-python rena_bot_pilot.py "https://meet.google.com/xxx-xxxx-xxx"
-```
+Option B: Running the Script (CLI)
+You can run the generator directly on an audio file without the UI:
 
-### 📂 Mode B: File Processor (Manual)
-Process any pre-recorded `.wav` or `.mp3` meeting file:
-```bash
-python meeting_notes_generator.py "path/to/meeting.wav"
-```
+Bash
+python meeting_notes_generator.py "path/to/your/audio_file.wav"
+📂 Project Structure
+RENA-Meeting-Intelligence-System/
+├── fonts/                       # Folder containing fonts (e.g., NotoSansDevanagari)
+│   └── NotoSansDevanagari-Regular.ttf
+├── meeting_outputs/             # Generated PDF reports are saved here
+├── meeting_notes_generator.py   # Core logic class (Transcription + AI Pipeline)
+├── app.py                       # Streamlit UI entry point
+├── requirements.txt             # Python dependencies
+└── README.md                    # Project documentation
+🔑 Configuration
+Google Gemini API Key: Open meeting_notes_generator.py and replace the placeholder API key:
 
-**With Language Override:**
-You can force a specific transcription language (e.g., Hindi):
-```bash
-python meeting_notes_generator.py "path/to/meeting.wav" hi
-```
+Python
+GEMINI_API_KEY = "YOUR_OWN_GOOGLE_API_KEY"
+Tip: For production, it is recommended to use Environment Variables or Streamlit Secrets.
 
----
+Hindi Font Support: Ensure NotoSansDevanagari-Regular.ttf is placed inside the fonts/ directory to enable Hindi text rendering in PDFs.
 
-## 📂 Project Directory Structure
-```text
-Rena-Meet/
-├── ReadMe.md               # Main documentation
-├── requirements.txt        # All Python dependencies
-├── meeting_notes_generator.py  # Core AI Engine (Neural Analysis)
-├── rena_bot_pilot.py          # Google Meet Automation Bot
-├── fonts/                     # Hindi (Devanagari) fonts
-├── meeting_outputs/        # Generated reports and recordings (auto-created)
-└── bot_session/            # Browser profile data (auto-created)
-```
+🔮 Future Roadmap
+Real-time Transcription: Integration for live meeting support.
 
-## 📁 Output Directory Structure
-```text
-meeting_outputs/
-├── recordings/          # Raw audio captured from meetings
-└── meeting_notes_...pdf # Final Thematic Intelligence Reports
-```
+Speaker Diarization: Advanced identification of "Who said what".
 
----
+Calendar Integration: Auto-schedule follow-up meetings based on Action Plans.
 
-## 📜 License & Acknowledgments
-- **Transcription**: Powered by OpenAI's Whisper (implemented via Faster-Whisper).
-- **Diarization**: NVIDIA NeMo TitaNet.
-- **Reasoning**: Anthropic-style prompts on Qwen 2.5.
+Cloud Deployment: Docker support for AWS/GCP deployment.
 
-**Version**: v6.5.0  
-**Status**: Testing  
-**Developer**: Chandisha Das
+👤 Author
+Chandisha Das
