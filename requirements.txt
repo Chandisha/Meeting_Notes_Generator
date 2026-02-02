@@ -1,25 +1,6 @@
-# RENA - Meeting Intelligence System Dependencies
-
-# Core Audio & Transcription
+streamlit
 faster-whisper
-librosa
-numpy
-soundfile
-
-# AI & LLM Orchestration
-langchain-ollama
-torch
-nemo_toolkit[asr]
-
-# Browser Automation (Pilot Bot)
-playwright
-playwright-stealth
-
-# PDF Generation & Reporting
+google-genai
+ollama
 reportlab
-
-# Utilities
 loguru
-scikit-learn
-python-dotenv
-pyperclip
