@@ -1,553 +1,327 @@
 import os
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
-
 import json
-import re
-import time
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List
-import numpy as np
 import warnings
-warnings.filterwarnings("ignore")
+import sys
+import time
+import re
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List
 
+# --- AI LIBRARIES ---
 from faster_whisper import WhisperModel
-from langchain_ollama import ChatOllama
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib.colors import HexColor, white
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from loguru import logger
 
-# Speaker diarization & Neural Models
+# 1. Google GenAI (Primary - Cloud)
 try:
-    import librosa
-    import torch
-    from sklearn.cluster import AgglomerativeClustering
-    from sklearn.metrics import silhouette_score
-    from sklearn.preprocessing import StandardScaler
-    import nemo.collections.asr.models as nemo_asr
-    DIARIZATION_AVAILABLE = True
+    from google import genai
+    from google.genai import types
+    GOOGLE_AVAILABLE = True
 except ImportError:
-    DIARIZATION_AVAILABLE = False
-    logger.warning("⚠️ NeMo or torch not found. Diarization will use basic fallback.")
+    GOOGLE_AVAILABLE = False
 
-# Register Hindi font
+# 2. Ollama (Fallback - Local)
 try:
-    font_paths = [
-        Path(__file__).parent / "fonts" / "NotoSansDevanagari-VariableFont_wdth,wght.ttf",
-        Path("fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf"),
-        Path("D:/Noto_Sans_Devanagari/NotoSansDevanagari-VariableFont_wdth,wght.ttf"),
-    ]
-    
-    HINDI_FONT_AVAILABLE = False
-    for font_path in font_paths:
-        if font_path.exists():
-            pdfmetrics.registerFont(TTFont('NotoHindi', str(font_path)))
-            HINDI_FONT_AVAILABLE = True
-            logger.info(f"✅ Hindi font: {font_path.name}")
-            break
-except Exception as e:
-    HINDI_FONT_AVAILABLE = False
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
 
+# --- REPORTLAB (PDF) IMPORTS ---
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+warnings.filterwarnings("ignore")
+
+# ==========================================
+# 🔑 CONFIGURATION
+# ==========================================
+GEMINI_API_KEY = "AIzaSyAKhMhIx6iCVoD-sIme09T6WNMkXXtM90g"
+
+# RECOMMENDATION: Use "qwen2.5:32b" for best intelligence.
+OLLAMA_MODEL = "qwen2.5:32b" 
+
+OUTPUT_DIR = Path("meeting_outputs")
+OUTPUT_DIR.mkdir(exist_ok=True)
+FONTS_DIR = Path(r"C:\Users\admin\Desktop\RENA-Meet\fonts") 
+
+# --- CONFIGURE LOGGER ---
 logger.remove()
-logger.add(
-    lambda msg: print(msg),
-    colorize=True,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | <level>{message}</level>",
-)
+logger.add(sys.stderr, format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>")
 
+def setup_fonts():
+    """Loads Hindi font for PDF support"""
+    font_path = FONTS_DIR / "NotoSansDevanagari-Regular.ttf"
+    if font_path.exists():
+        try:
+            pdfmetrics.registerFont(TTFont('HindiFont', str(font_path)))
+            return True
+        except: return False
+    return False
+
+HINDI_AVAILABLE = setup_fonts()
 
 class AdaptiveMeetingNotesGenerator:
-    """
-    ADAPTIVE Meeting Notes Generator v6.2 (NVIDIA NeMo Powered)
-    
-    Automatically adapts to ANY meeting type using the code provided by the USER.
-    Improved with Neural Speaker Diarization.
-    """
-    
-    def __init__(self, whisper_model_size: str = "medium", ollama_model: str = "qwen2.5:7b"):
-        logger.info("🔧 Initializing ADAPTIVE Meeting Notes Generator v6.2...")
-        
-        self.whisper = WhisperModel(whisper_model_size, device="cpu", compute_type="int8")
-        logger.info(f"✅ Whisper: {whisper_model_size}")
-        
-        self.llm = ChatOllama(
-            model=ollama_model,
-            temperature=0,
-            max_tokens=6000,
-        )
-        logger.info(f"✅ LLM: {ollama_model}")
-        
-        self.diarization_enabled = DIARIZATION_AVAILABLE
-        if self.diarization_enabled:
-            logger.info("🧠 Loading NVIDIA NeMo Neural Diarization model (CPU)...")
+    def __init__(self, whisper_model="medium"):
+        print("\n" + "="*60)
+        logger.info(f"🔧 SYSTEM INIT | Model: {OLLAMA_MODEL}")
+        print("="*60)
+
+        # 1. SETUP GOOGLE
+        self.google_client = None
+        if GOOGLE_AVAILABLE:
             try:
-                # Use the official NeMo alias 'titanet_large' for the TitaNet-L model
-                self.speaker_model = nemo_asr.EncDecSpeakerLabelModel.from_pretrained("titanet_large")
-                self.speaker_model.eval() 
-                logger.info("✅ NeMo Neural Diarization ready")
-            except Exception as e:
-                logger.error(f"❌ Failed to load NeMo: {e}")
-                self.diarization_enabled = False
-        
-        self.output_dir = Path("meeting_outputs")
-        self.output_dir.mkdir(exist_ok=True)
-        
-        logger.info("🚀 System ready!")
-    
-    def format_timestamp(self, seconds: float) -> str:
-        minutes = int(seconds // 60)
-        secs = int(seconds % 60)
-        return f"{minutes:02d}:{secs:02d}"
-    
-    def clean_text(self, text: str) -> str:
-        text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'([.!?])\1+', r'\1', text)
-        return text.strip()
-    
-    def extract_speaker_features(self, audio_segment: np.ndarray, sr: int):
-        """Extracts high-dimensional embeddings using NVIDIA NeMo TitaNet."""
-        if not self.diarization_enabled: return None
-        try:
-            # Resample to 16k if necessary (NeMo requirement)
-            if sr != 16000:
-                audio_segment = librosa.resample(audio_segment, orig_sr=sr, target_sr=16000)
-            
-            # Convert to torch tensor
-            audio_tensor = torch.from_numpy(audio_segment).unsqueeze(0)
-            audio_len = torch.tensor([audio_tensor.shape[1]])
-            
-            # Get neural embedding
-            with torch.no_grad():
-                _, embedding = self.speaker_model.forward(input_signal=audio_tensor, input_signal_length=audio_len)
-            
-            return embedding.cpu().numpy().flatten()
-        except:
-            return None
-    
-    def perform_speaker_diarization(self, audio_path: str, segments: List[Dict]) -> List[Dict]:
-        if not self.diarization_enabled:
-            for seg in segments: seg["speaker"] = "SPEAKER_00"
-            return segments
-        
-        logger.info("🎯 Performing NeMo Neural Diarization (CPU)...")
-        
-        try:
-            audio, sr = librosa.load(audio_path, sr=16000, mono=True)
-            features = []
-            valid_indices = []
-            
-            for i, seg in enumerate(segments):
-                start_sample = int(seg["start"] * sr)
-                end_sample = int(seg["end"] * sr)
-                segment_audio = audio[start_sample:end_sample]
-                
-                # NeMo works best on segments > 0.6s
-                if len(segment_audio) / sr < 0.6:
-                    continue
-                
-                emb = self.extract_speaker_features(segment_audio, sr)
-                if emb is not None:
-                    features.append(emb)
-                    valid_indices.append(i)
-            
-            if len(features) < 2:
-                for seg in segments: seg["speaker"] = "SPEAKER_00"
-                return segments
+                self.google_client = genai.Client(api_key=GEMINI_API_KEY)
+                logger.info("   [Primary] Google Gemini Client Initialized.")
+            except: pass
 
-            # Cluster the neural embeddings
-            features_array = np.array(features)
-            scaler = StandardScaler()
-            features_norm = scaler.fit_transform(features_array)
-            
-            # Auto-detect speaker count using Silhouette score
-            best_n = 2
-            max_s = min(8, len(features) // 3 + 1)
-            if max_s > 2:
-                best_score = -1
-                for n in range(2, max_s):
-                    c = AgglomerativeClustering(n_clusters=n).fit(features_norm)
-                    s = silhouette_score(features_norm, c.labels_)
-                    if s > best_score:
-                        best_score, best_n = s, n
-            
-            model = AgglomerativeClustering(n_clusters=best_n).fit(features_norm)
-            
-            # Map labels back to segments
-            for i, idx in enumerate(valid_indices):
-                segments[idx]["speaker"] = f"SPEAKER_{model.labels_[i]:02d}"
-                
-            # Post-processing gap filling
-            last_spk = "SPEAKER_00"
-            for seg in segments:
-                if "speaker" not in seg or seg["speaker"] == "SPEAKER_00":
-                    seg["speaker"] = last_spk
-                else:
-                    last_spk = seg["speaker"]
-                    
-            logger.info(f"✅ NeMo identified {best_n} unique neural signatures")
-            return segments
-            
+        # 2. SETUP OLLAMA
+        if OLLAMA_AVAILABLE:
+            try:
+                ollama.list()
+                logger.info(f"   [Fallback] Local Ollama Ready ({OLLAMA_MODEL}).")
+            except:
+                logger.warning("⚠️ Ollama not reachable. Run 'ollama serve' in terminal.")
+
+        # 3. SETUP WHISPER
+        logger.info(f"   [Audio] Loading Whisper ({whisper_model})...")
+        try:
+            self.whisper = WhisperModel(whisper_model, device="cpu", compute_type="int8")
+            logger.info("   [Status] Whisper Ready.")
         except Exception as e:
-            logger.error(f"❌ NeMo Error: {e}")
-            for seg in segments: seg["speaker"] = "SPEAKER_00"
-            return segments
+            logger.error(f"❌ Whisper Failed: {e}")
+            sys.exit(1)
 
-    # ==================== TRANSCRIPTION ====================
-    
-    def transcribe_audio(self, audio_path: str, language: str = None) -> Dict:
-        logger.info(f"🎙️ Transcribing: {Path(audio_path).name}")
+    # --- STEP 1: TRANSCRIPTION ---
+    def transcribe(self, audio_path: str) -> Dict:
+        print("\n" + "-"*60)
+        logger.info("🎙️ STEP 1: TRANSCRIPTION")
+        print("-"*60)
         
-        whisper_lang = "hi" if language == "hi" else "en" if language == "en" else None
-        
-        segments, info = self.whisper.transcribe(
+        if not os.path.exists(audio_path):
+            logger.error("Audio file does not exist.")
+            return {"transcript": "", "segments": []}
+
+        # Relaxed VAD parameters
+        segments, _ = self.whisper.transcribe(
             audio_path,
             beam_size=5,
-            language=whisper_lang,
-            task="transcribe",
-            condition_on_previous_text=True,
-            compression_ratio_threshold=2.4,
-            log_prob_threshold=-1.0,
-            no_speech_threshold=0.6,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500) 
         )
+
+        full_text = []
+        transcript_segments = []
         
-        segment_list = []
+        print("   Processing Timeline: ", end="")
+        has_speech = False
+        
         for segment in segments:
+            has_speech = True
             text = segment.text.strip()
-            if text:
-                segment_list.append({
-                    "start": round(segment.start, 2),
-                    "end": round(segment.end, 2),
-                    "text": text
-                })
-        
-        segment_list = self.perform_speaker_diarization(audio_path, segment_list)
-        
-        result = {
-            "transcript": " ".join([s["text"] for s in segment_list]),
-            "detected_language": info.language,
-            "language_probability": round(info.language_probability, 2),
-            "segments": segment_list,
-            "num_speakers": len(set(s.get("speaker", "SPEAKER_00") for s in segment_list))
-        }
-        
-        logger.info(f"✅ Complete | {info.language} ({info.language_probability:.0%}) | {result['num_speakers']} speakers")
-        return result
-    
-    # ==================== ADAPTIVE CONTEXT DETECTION (USER PROVIDED) ====================
-    
-    def detect_meeting_type(self, transcript: str, segments: List[Dict]) -> Dict:
-        """
-        🔥 ADAPTIVE: Automatically detects meeting type
-        """
-        logger.info("🔍 Detecting meeting type...")
-        
-        speaker_word_counts = {}
-        for seg in segments:
-            speaker = seg.get("speaker", "Unknown")
-            word_count = len(seg["text"].split())
-            speaker_word_counts[speaker] = speaker_word_counts.get(speaker, 0) + word_count
-        
-        if speaker_word_counts:
-            total_words = sum(speaker_word_counts.values())
-            dominant_speaker = max(speaker_word_counts, key=speaker_word_counts.get)
-            dominant_ratio = speaker_word_counts[dominant_speaker] / total_words if total_words > 0 else 0
-        else:
-            dominant_speaker = None
-            dominant_ratio = 0
-        
-        transcript_lower = transcript.lower()
-        
-        sales_keywords = ["presentation", "solution", "customer", "client", "demo", "product", "offer", "pricing"]
-        team_keywords = ["standup", "blocker", "sprint", "ticket", "merge", "deploy", "yesterday", "today"]
-        interview_keywords = ["experience", "tell me about", "why do you", "describe", "example of", "your background"]
-        strategy_keywords = ["roadmap", "quarter", "goals", "objectives", "strategy", "vision", "priorities"]
-        training_keywords = ["learn", "tutorial", "example", "practice", "exercise", "lesson", "module"]
-        board_keywords = ["quarterly results", "board", "vote", "approve", "motion", "financials", "governance"]
-        brainstorm_keywords = ["ideas", "brainstorm", "what if", "could we", "alternatives", "creative"]
-        
-        sales_score = sum(3 for kw in sales_keywords if kw in transcript_lower)
-        team_score = sum(3 for kw in team_keywords if kw in transcript_lower)
-        interview_score = sum(3 for kw in interview_keywords if kw in transcript_lower)
-        strategy_score = sum(3 for kw in strategy_keywords if kw in transcript_lower)
-        training_score = sum(3 for kw in training_keywords if kw in transcript_lower)
-        board_score = sum(3 for kw in board_keywords if kw in transcript_lower)
-        brainstorm_score = sum(3 for kw in brainstorm_keywords if kw in transcript_lower)
-        
-        if dominant_ratio > 0.7:
-            if sales_score > 5: meeting_type = "SALES_DEMO"
-            elif training_score > 3: meeting_type = "TRAINING"
-            elif interview_score > 3: meeting_type = "INTERVIEW"
-            else: meeting_type = "PRESENTATION"
-        elif len(speaker_word_counts) >= 4:
-            if team_score > 4: meeting_type = "TEAM_MEETING"
-            elif brainstorm_score > 3: meeting_type = "BRAINSTORMING"
-            elif board_score > 3: meeting_type = "BOARD_MEETING"
-            else: meeting_type = "GROUP_DISCUSSION"
-        else:
-            scores = {
-                "SALES_DEMO": sales_score, "TEAM_MEETING": team_score, "INTERVIEW": interview_score,
-                "STRATEGY": strategy_score, "TRAINING": training_score, "BOARD_MEETING": board_score,
-                "BRAINSTORMING": brainstorm_score, "DISCUSSION": 1
-            }
-            meeting_type = max(scores, key=scores.get)
-        
-        context = {
-            "meeting_type": meeting_type, "dominant_speaker": dominant_speaker,
-            "dominant_ratio": round(dominant_ratio, 2), "total_speakers": len(speaker_word_counts)
-        }
-        logger.info(f"📋 Detected: {meeting_type}")
-        return context
-    
-    # ==================== ADAPTIVE FACT EXTRACTION (USER PROVIDED) ====================
-    
-    def extract_facts_adaptive(self, transcript: str, segments: List[Dict], context: Dict) -> Dict:
-        """
-        🔥 ADAPTIVE: Extracts facts relevant to meeting type
-        """
-        logger.info(f"📊 Adaptive fact extraction for {context['meeting_type']}...")
-        meeting_type = context['meeting_type']
-        
-        chunk_size = 12 * 60
-        chunks = []
-        current_chunk = []
-        chunk_start = 0
-        for seg in segments:
-            if seg["start"] - chunk_start > chunk_size and current_chunk:
-                chunks.append(current_chunk)
-                current_chunk = []
-                chunk_start = seg["start"]
-            current_chunk.append(seg)
-        if current_chunk: chunks.append(current_chunk)
-        
-        all_facts = []
-        for idx, chunk_segs in enumerate(chunks):
-            chunk_text = " ".join([s["text"] for s in chunk_segs])
             
-            # 🔥 ENHANCED ADAPTIVE CATEGORIES
-            if meeting_type == "SALES_DEMO":
-                categories_prompt = """
-1. **COMPANY_DETAILS**: Name, industry, size, founder background.
-2. **PRODUCT_FEATURES**: Specific features, technical solutions, and benefits presented.
-3. **CUSTOMER_CONTEXT**: Client needs, current pain points, and existing tech stack.
-4. **DEMO_HIGHLIGHTS**: Specifically what was shown during the demonstration.
-5. **CLIENT_OBJECTIONS**: Concerns, doubts, or technical blockers raised by the client.
-6. **COMMERCIALS**: Pricing discussed, budget, or contract terms.
-7. **NEXT_STEPS**: Specific follow-up tasks and timeline."""
-                
-            elif meeting_type == "TEAM_MEETING":
-                categories_prompt = """
-1. **UPDATES**: Specific progress reported by each participant.
-2. **BLOCKERS**: Any issues or dependencies preventing work.
-3. **DECISIONS**: Final decisions made during the meeting.
-4. **NEW_TASKS**: Tasks assigned with owners and deadlines.
-5. **TECHNICAL_DETAILS**: Bug IDs, system names, or technical specs discussed.
-6. **TIMELINE**: Project milestones or upcoming deadlines."""
-                
-            elif meeting_type == "INTERVIEW":
-                categories_prompt = """
-1. **CANDIDATE_PROFILE**: Experience, education, and primary skills.
-2. **TECHNICAL_ASSESSMENT**: Performance on specific technical questions.
-3. **CULTURAL_FIT**: Observations about candidate's attitude and soft skills.
-4. **QUESTIONS_ASKED**: Specific questions interviewer asked.
-5. **NEXT_STEPS**: Internal feedback process and candidate notification timeline."""
+            m, s = divmod(int(segment.start), 60)
+            timestamp = f"{m:02d}:{s:02d}"
             
-            else:
-                categories_prompt = """
-1. **KEY_TOPICS**: Main themes of the discussion.
-2. **ARGUMENTS**: Different viewpoints or opinions expressed.
-3. **DECISIONS**: Any clear conclusions or agreements reached.
-4. **UNRESOLVED_ISSUES**: Topics needing further discussion.
-5. **ACTION_ITEMS**: Concrete tasks identified with potential owners."""
+            transcript_segments.append({"timestamp": timestamp, "text": text})
+            full_text.append(f"[{timestamp}] {text}")
+            print("▓", end="", flush=True)
+            
+        print(" [Done]")
+        
+        if not has_speech:
+            logger.warning("⚠️  NO SPEECH DETECTED.")
+            return {"transcript": "", "segments": []}
 
-            prompt = f"""You are a high-precision meeting analyst. Extract facts from meeting chunk {idx+1}/{len(chunks)}.
+        return {
+            "transcript": "\n".join(full_text), 
+            "segments": transcript_segments
+        }
 
-MEETING TYPE: {meeting_type}
-TRANSCRIPT CHUNK:
-{chunk_text[:4500]}
+    # --- STEP 2: PIPELINE EXECUTION ---
+    def analyze_transcript(self, transcript: str) -> Dict:
+        print("\n" + "-"*60)
+        logger.info("🧠 STEP 2: AI PIPELINE (Sum -> Hindi -> MOM -> Actions)")
+        print("-"*60)
+        
+        if not transcript:
+            return {"detected_context": "No Audio", "summary_en": "No speech detected.", "summary_hi": "-", "mom": [], "actions": []}
 
-REQUIRED CATEGORIES:
-{categories_prompt}
+        # --- UPDATED PROMPT TO CATCH 'HIDDEN' ACTIONS ---
+        prompt = f"""
+        You are an expert Meeting Secretary. Follow this pipeline STRICTLY:
 
-**RULES**:
-- Extract ONLY explicitly mentioned facts.
-- Include ALL numbers, names, dates, and amounts.
-- Maintain a professional tone.
-- If a category is not mentioned, return an empty list for it.
+        SOURCE TRANSCRIPT:
+        {transcript[:50000]}
+        
+        YOUR TASKS (Execute in order):
+        1. **Analyze Context**: Identify the main topic and speakers.
+        2. **English Summary**: Write a comprehensive executive summary (4-5 sentences).
+        3. **Hindi Translation**: Translate the English summary from Step 2 into Hindi (Devanagari).
+        4. **MOM (Minutes)**: Extract general discussion points.
+        5. **Action Plan (CRITICAL)**: EXTRACT ALL TASKS AND DEADLINES.
+           - **IMPORTANT**: If a speaker says "I have to do this by [Date]" or "This is due [Date]", treat it as an ACTION ITEM, not just a minute.
+           - Convert implied tasks into clear actions.
+           - Extract the Task, the Owner (Speaker/Team), and the Deadline.
+           - Example Input: "I have to do it by today." -> Action Output: {{ "task": "Complete the demo project", "owner": "Speaker", "deadline": "Today (2nd Feb)" }}
 
-FORMAT: Use a JSON object where keys are the category names exactly as written above in uppercase.
-"""
+        OUTPUT FORMAT: Provide ONLY this JSON structure.
+        {{
+            "detected_context": "Meeting Topic",
+            "summary_en": "The meeting focused on...",
+            "summary_hi": "बैठक का मुख्य विषय...",
+            "mom": ["Point 1", "Point 2", "Point 3"],
+            "actions": [
+                {{ "task": "Submit Demo Project", "owner": "Student/Speaker", "deadline": "2nd February 2026" }},
+                {{ "task": "Review deliverables", "owner": "Team", "deadline": "Immediate" }}
+            ]
+        }}
+        """
+
+        # 1. Try Gemini
+        if self.google_client:
             try:
-                response = self.llm.invoke(prompt)
-                text = response.content.strip()
-                if "```json" in text: 
-                    text = text.split("```json")[1].split("```")[0].strip()
-                elif "```" in text:
-                    text = text.split("```")[1].split("```")[0].strip()
-                all_facts.append(json.loads(text))
+                logger.info("   [Primary] Sending to Google Cloud...")
+                response = self.google_client.models.generate_content(
+                    model="gemini-1.5-flash-latest",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                )
+                logger.info("   [Success] Google Cloud responded.")
+                return json.loads(response.text)
             except Exception as e:
-                logger.warning(f"⚠️ Fact extraction failed for chunk {idx+1}: {e}")
-            
-        merged = {}
-        for chunk_facts in all_facts:
-            for key, values in chunk_facts.items():
-                if key not in merged: merged[key] = []
-                if isinstance(values, list): merged[key].extend(values)
-        return merged
-    
-    # ==================== GENIUS MEETING INTELLIGENCE (NEW APPROACH) ====================
-    
-    def generate_meeting_intelligence(self, facts: Dict, context: Dict) -> Dict:
-        """
-        🚀 REVOLUTIONARY APPROACH: Coordinated Intelligence Synthesis.
-        Instead of separate prompts, this creates a single cohesive intelligence map.
-        """
-        logger.info("🧠 Synthesizing Meeting Intelligence Map...")
+                logger.error(f"   ❌ Gemini Error: {e}")
+
+        # 2. Try Local Ollama
+        if OLLAMA_AVAILABLE:
+            logger.info(f"   [Fallback] running on Local GPU ({OLLAMA_MODEL})...")
+            try:
+                response = ollama.chat(model=OLLAMA_MODEL, messages=[
+                    {'role': 'system', 'content': 'You are a JSON-only API. Output ONLY valid JSON.'},
+                    {'role': 'user', 'content': prompt},
+                ])
+                
+                raw = response['message']['content']
+                clean = self._clean_json(raw)
+                logger.info("   [Success] Local AI responded.")
+                return json.loads(clean)
+            except Exception as e:
+                logger.error(f"   ❌ Local AI Error: {e}")
+
+        return {}
+
+    def _clean_json(self, text):
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            return text[start:end+1]
+        return text
+
+    # --- STEP 3: PDF REPORT ---
+    def generate_pdf(self, intel: Dict, segments: List[Dict], filename: str):
+        print("\n" + "-"*60)
+        logger.info("📄 STEP 3: GENERATING PDF")
+        print("-"*60)
         
-        meeting_type = context['meeting_type']
-        # Convert facts to a more dense representation for the synthesis
-        facts_payload = json.dumps(facts, indent=2)
+        pdf_path = OUTPUT_DIR / f"{filename}.pdf"
         
-        master_prompt = f"""You are a World-Class Executive Assistant and Strategic Consultant.
-Analyze the following meeting data and produce a high-fidelity 'Intelligence Report'.
-
-MEETING CONTEXT:
-Type: {meeting_type}
-Dominant Speaker Ratio: {context.get('dominant_ratio', 'N/A')}
-
-EXTRACTED DATA:
-{facts_payload}
-
-**TASK**: Generate a structured JSON report covering three specific sections:
-
-1. **EXECUTIVE_SUMMARY**: A sophisticated 4-sentence narrative in English (100 words).
-   - Sentence 1: The 'Why' and 'Who' (Strategic Context).
-   - Sentence 2: The 'What' (The core technical/business pivot or demonstration).
-   - Sentence 3: The 'Reaction' (Client/Team consensus, sentiment, or friction points).
-   - Sentence 4: The 'Roadmap' (Final outcome and the immediate next milestone).
-
-2. **HINDI_SUMMARY**: A natural, professional Hindi translation of the summary above. Use English for technical terms (Hinglish).
-
-3. **MINUTES_OF_MEETING** (Topic-Grouped): 
-   - Group the discussion into 3-4 'Thematic Clusters' (e.g., 'Product Architecture', 'Commercial Constraints').
-   - For each cluster, provide 2-3 high-value bullet points.
-
-4. **ACTION_TRACKER**: A list of concrete tasks.
-   - For each: Task Name, Responsible Party (find the name!), Deadline (or TBD), and Priority (High/Medium/Low).
-
-**JSON STRUCTURE REQUIRED**:
-{{
-  "summary_en": "...",
-  "summary_hi": "...",
-  "thematic_mom": [
-    {{ "topic": "Topic Name", "points": ["...", "..."] }}
-  ],
-  "actions": [
-    {{ "task": "...", "owner": "...", "deadline": "...", "priority": "..." }}
-  ]
-}}
-"""
         try:
-            response = self.llm.invoke(master_prompt)
-            data = response.content.strip()
-            if "```json" in data: data = data.split("```json")[1].split("```")[0].strip()
-            intelligence = json.loads(data)
+            doc = SimpleDocTemplate(str(pdf_path), pagesize=letter)
+            styles = getSampleStyleSheet()
             
-            # Flatten thematic MOM for the PDF generator compatibility
-            flat_mom = []
-            for theme in intelligence.get("thematic_mom", []):
-                flat_mom.append(f"<b>{theme['topic'].upper()}</b>")
-                flat_mom.extend([f"• {p}" for p in theme['points']])
+            # Custom Styles
+            style_title = ParagraphStyle('T', parent=styles['Heading1'], fontSize=20, textColor=colors.navy, spaceAfter=20)
+            style_h2 = ParagraphStyle('H2', parent=styles['Heading2'], fontSize=14, textColor=colors.black, spaceBefore=15, spaceAfter=5)
+            style_body = ParagraphStyle('B', parent=styles['Normal'], fontSize=11, leading=14)
+            style_hindi = ParagraphStyle('Hi', parent=styles['Normal'], fontSize=11, fontName='HindiFont' if HINDI_AVAILABLE else 'Helvetica')
+            style_action = ParagraphStyle('Act', parent=styles['Normal'], fontSize=11, leading=14, leftIndent=10)
+
+            elements = []
+
+            # HEADER
+            elements.append(Paragraph("MEETING INTELLIGENCE REPORT", style_title))
+            elements.append(Paragraph(f"<b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')}", style_body))
+            elements.append(Spacer(1, 15))
+
+            # 1. SUMMARY (ENG)
+            elements.append(Paragraph("EXECUTIVE SUMMARY (English)", style_h2))
+            elements.append(Paragraph(intel.get('summary_en', 'N/A'), style_body))
             
-            # Formulate action strings
-            flat_actions = []
-            for act in intelligence.get("actions", []):
-                flat_actions.append(f"{act['task']} - [Owner: {act['owner']}] - [Deadline: {act['deadline']}] - [Priority: {act['priority']}]")
+            # 2. SUMMARY (HINDI)
+            elements.append(Paragraph("EXECUTIVE SUMMARY (Hindi)", style_h2))
+            elements.append(Paragraph(intel.get('summary_hi', 'N/A'), style_hindi))
+            elements.append(Spacer(1, 10))
+
+            # 3. MOM
+            if intel.get('mom'):
+                elements.append(Paragraph("MINUTES OF MEETING", style_h2))
+                for point in intel['mom']:
+                    elements.append(Paragraph(f"• {point}", style_body))
+                    elements.append(Spacer(1, 3))
+
+            # 4. ACTION PLANS (Fixed Bullet Style)
+            actions = intel.get('actions', [])
+            if actions:
+                logger.info(f"   [Actions] Found {len(actions)} action items. Adding to PDF...")
+                elements.append(Spacer(1, 15))
+                elements.append(Paragraph("ACTION PLANS & TASKS", style_h2))
+                
+                for a in actions:
+                    task = a.get('task', 'No task description')
+                    owner = a.get('owner', 'Unassigned')
+                    deadline = a.get('deadline', 'TBD')
+                    
+                    # Format: • Task Name
+                    #           (Owner: X | Deadline: Y)
+                    text = f"• <b>{task}</b> <br/>&nbsp;&nbsp;&nbsp;<i>(Owner: {owner} | Deadline: {deadline})</i>"
+                    
+                    elements.append(Paragraph(text, style_action))
+                    elements.append(Spacer(1, 8)) # Slightly more space between actions
+            else:
+                logger.info("   [Actions] No action items detected in transcript.")
+
+            # 5. TRANSCRIPT
+            elements.append(PageBreak())
+            elements.append(Paragraph("FULL TRANSCRIPT", style_h2))
             
-            return {
-                "summary_en": intelligence.get("summary_en", ""),
-                "summary_hi": intelligence.get("summary_hi", ""),
-                "mom": flat_mom,
-                "action_items": flat_actions
-            }
+            if not segments:
+                elements.append(Paragraph("<i>(No audible speech detected in recording)</i>", style_body))
+            else:
+                for s in segments:
+                    p = f"<b>[{s['timestamp']}]</b> {s['text']}"
+                    elements.append(Paragraph(p, style_body))
+                    elements.append(Spacer(1, 4))
+
+            doc.build(elements)
+            logger.info(f"   [File] Saved to: {pdf_path}")
+            return str(pdf_path)
+
         except Exception as e:
-            logger.error(f"❌ Intelligence Synthesis Failed: {e}")
-            return {
-                "summary_en": "Refer to transcript.",
-                "summary_hi": "विवरण उपलब्ध नहीं है।",
-                "mom": ["Discussion recorded."],
-                "action_items": []
-            }
+            logger.error(f"❌ PDF Generation Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
-    def create_professional_pdf(self, meeting_data: Dict) -> str:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        pdf_path = self.output_dir / f"meeting_notes_{timestamp}.pdf"
-        doc = SimpleDocTemplate(str(pdf_path), pagesize=letter)
-        styles = getSampleStyleSheet()
+    def process(self, audio_file):
+        # 1. Transcribe
+        res = self.transcribe(audio_file)
         
-        h1 = ParagraphStyle('H1', fontSize=22, textColor=HexColor('#1a1a1a'), spaceAfter=12, fontName='Helvetica-Bold')
-        h2 = ParagraphStyle('H2', fontSize=16, textColor=HexColor('#2c3e50'), spaceBefore=15, spaceAfter=8, fontName='Helvetica-Bold')
-        body = ParagraphStyle('Body', fontSize=11, leading=16, fontName='NotoHindi' if HINDI_FONT_AVAILABLE else 'Helvetica')
+        # 2. Analyze
+        intel = self.analyze_transcript(res['transcript'])
         
-        story = [Paragraph("📋 MEETING NOTES", h1)]
-        story.append(Paragraph(f"Type: {meeting_data['meeting_context'].replace('_', ' ').title()} | Date: {datetime.now().strftime('%B %d, %Y')}", styles['Normal']))
-        story.append(Spacer(1, 10))
+        # 3. Generate PDF
+        filename = Path(audio_file).stem + "_report"
+        final_pdf = self.generate_pdf(intel, res['segments'], filename)
         
-        story.append(Paragraph("📊 EXECUTIVE SUMMARY (English)", h2))
-        story.append(Paragraph(meeting_data['summary_english'], body))
-        
-        story.append(Paragraph("📊 EXECUTIVE SUMMARY (Hindi)", h2))
-        story.append(Paragraph(meeting_data['summary_hindi'], body))
-        
-        story.append(Paragraph("📌 MINUTES OF MEETING", h2))
-        for point in meeting_data['mom']:
-            story.append(Paragraph(point, body))
-            
-        story.append(Paragraph("✅ ACTION ITEMS", h2))
-        for item in meeting_data['action_items']:
-            story.append(Paragraph(f"• {item}", body))
-            
-        story.append(PageBreak())
-        story.append(Paragraph("📝 TRANSCRIPT", h2))
-        for seg in meeting_data['segments']:
-            story.append(Paragraph(f"<b>{seg.get('speaker', 'Unknown')}:</b> {seg['text']}", body))
-            
-        doc.build(story)
-        return str(pdf_path)
-
-    def process_meeting(self, audio_path: str, language: str = None) -> Dict:
-        transcription = self.transcribe_audio(audio_path, language)
-        context = self.detect_meeting_type(transcription["transcript"], transcription["segments"])
-        facts = self.extract_facts_adaptive(transcription["transcript"], transcription["segments"], context)
-        
-        # Stage 4: Coordinated Intelligence Synthesis
-        logger.info("📍 Stage 4/5: Generating Coordinated Intelligence Report")
-        intel = self.generate_meeting_intelligence(facts, context)
-        
-        meeting_data = {
-            "summary_english": intel["summary_en"],
-            "summary_hindi": intel["summary_hi"],
-            "mom": intel["mom"],
-            "action_items": intel["action_items"],
-            "segments": transcription["segments"],
-            "meeting_context": context["meeting_type"],
-            "num_speakers": transcription["num_speakers"]
-        }
-        
-        # Stage 5: PDF Generation
-        logger.info("📍 Stage 5/5: Creating Professional PDF Report")
-        meeting_data["pdf_path"] = self.create_professional_pdf(meeting_data)
-        
-        return meeting_data
+        if final_pdf:
+            print(f"\n🎉 SUCCESS! Report ready: {final_pdf}")
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) < 2: sys.exit(1)
-    gen = AdaptiveMeetingNotesGenerator()
-    res = gen.process_meeting(sys.argv[1])
-    print(f"🎉 SUCCESS! PDF: {res['pdf_path']}")
+    if len(sys.argv) > 1:
+        AdaptiveMeetingNotesGenerator().process(sys.argv[1])
+    else:
+        print("Usage: python meeting_notes_generator.py <file.wav>")
