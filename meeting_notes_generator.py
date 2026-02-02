@@ -40,7 +40,7 @@ warnings.filterwarnings("ignore")
 # ==========================================
 # 🔑 CONFIGURATION
 # ==========================================
-GEMINI_API_KEY = "AIzaSyAKhMhIx6iCVoD-sIme09T6WNMkXXtM90g"
+GEMINI_API_KEY = "YOUR_OWN_GOOGLE_API_KEY"
 
 # RECOMMENDATION: Use "qwen2.5:32b" for best intelligence.
 OLLAMA_MODEL = "qwen2.5:32b" 
