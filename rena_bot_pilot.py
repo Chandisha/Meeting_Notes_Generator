@@ -9,9 +9,9 @@ from pathlib import Path
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
-
-
 import pyperclip
+
+# --- HELPER FUNCTIONS ---
 
 def is_meet_url(text: str) -> bool:
     return isinstance(text, str) and text.startswith("https://meet.google.com/")
@@ -27,18 +27,18 @@ def wait_for_meet_link_from_clipboard():
         last = current
         time.sleep(1)
 
-
-# Import your existing generator
+# --- IMPORT AI GENERATOR ---
 try:
     from meeting_notes_generator import AdaptiveMeetingNotesGenerator
 except ImportError:
     print("❌ Error: Could not find meeting_notes_generator.py in the same directory.")
     sys.exit(1)
 
+# --- MAIN BOT CLASS ---
+
 class RenaMeetingBot:
     """
-    Rena AI Meeting Bot v1.1
-    Optimized for stable audio recording and auto-configuration.
+    Rena AI Meeting Bot v1.4 (Robust Audio Setup)
     """
     
     def __init__(self, bot_name="Rena AI (Note Taker)"):
@@ -83,7 +83,7 @@ class RenaMeetingBot:
         print(f"🎙️ Target Device: {device_name}")
         print(f"🎙️ Starting recording: {self.recording_path}")
 
-        # Command with low-latency and slight volume boost (2x) to fix silent/low recordings
+        # Command with low-latency and slight volume boost (2x)
         command = [
             ffmpeg_exe, '-y',
             '-f', 'dshow',
@@ -112,6 +112,31 @@ class RenaMeetingBot:
             self.audio_process.wait()
             self.is_recording = False
             print(f"✅ Recording saved to: {self.recording_path}")
+
+    def setup_mode(self):
+        """Opens browser strictly for the user to log in manually."""
+        print("🔑 SETUP MODE: Please log in to your Google Account.")
+        print("⚠️  Use this window to sign in. Close it when you are done.")
+        
+        with sync_playwright() as p:
+            user_data_dir = os.path.join(os.getcwd(), "bot_session")
+            
+            context = p.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=False,
+                viewport={'width': 1280, 'height': 720},
+                channel="chrome", 
+                args=["--disable-blink-features=AutomationControlled"]
+            )
+            page = context.new_page()
+            
+            print("🚀 Opening Google Sign-in Page...")
+            try:
+                page.goto("https://accounts.google.com/signin")
+                while context.pages:
+                    time.sleep(1)
+            except Exception:
+                print("✅ Browser closed. Login session saved!")
 
     def join_google_meet(self, meet_url):
         """Launches browser and handles the joining flow."""
@@ -171,32 +196,61 @@ class RenaMeetingBot:
                         print("📩 Join request sent.")
                         break
 
-                # Wait for admission
                 print("⏳ Waiting for admission...")
                 page.wait_for_selector('button[aria-label="Leave call"]', timeout=300000) 
                 print("🎉 Bot is in the meeting.")
 
-                # --- AUTO-CONFIGURE SPEAKER ---
+                # --- AUTO-CONFIGURE SPEAKER (ROBUST VERSION) ---
                 try:
                     print("⚙️ Auto-configuring audio output to VB-CABLE...")
-                    page.click('button[aria-label="More options"]')
-                    page.click('text="Settings"')
+                    # 1. Open Options Menu
+                    page.wait_for_selector('button[aria-label="More options"]', timeout=5000).click()
+                    
+                    # 2. Click Settings
+                    page.wait_for_selector('li[role="menuitem"]:has-text("Settings")', timeout=5000).click()
+                    time.sleep(2) # Allow modal to animate
+                    
+                    # 3. Ensure we are on the Audio Tab
+                    try: page.click('li[role="tab"]:has-text("Audio")', timeout=2000)
+                    except: pass 
+
+                    # 4. Click Speakers Dropdown
+                    page.click('[aria-label="Speakers"]', timeout=5000)
                     time.sleep(1)
-                    # Use a broad selector for speakers dropdown
-                    page.click('[aria-label="Speakers"]')
-                    time.sleep(0.5)
-                    # Click the virtual cable option
-                    page.click('text="CABLE Input (VB-Audio Virtual Cable)"')
+                    
+                    # 5. Smart Search for Cable
+                    # We try to scroll down just in case it's hidden
+                    page.keyboard.press("ArrowDown")
+                    page.keyboard.press("ArrowDown")
+                    
+                    # Look for ANY text containing "CABLE" (Partial match is safer)
+                    cable_option = page.locator('li[role="option"]').filter(has_text="CABLE").first
+                    
+                    if cable_option.is_visible():
+                        cable_option.click()
+                        print("✅ Speaker successfully set to Virtual Cable.")
+                    else:
+                        print("⚠️ Could not find 'CABLE' in the list automatically.")
+                        raise Exception("Cable option not visible")
+                    
+                    # Close Settings
                     page.keyboard.press("Escape")
-                    print("✅ Speaker successfully set to Virtual Cable.")
-                except:
-                    print("⚠️ Could not auto-set speaker. Please manually set Speaker to 'CABLE Input' in Google Meet settings.")
+                    
+                except Exception as e:
+                    print("\n" + "!"*50)
+                    print(f"⚠️  AUTO SETUP FAILED: {e}")
+                    print("👉 ACTION REQUIRED: Please Manually set Speaker to 'VB-Cable' NOW.")
+                    print("👉 Do NOT close this window. Just change the setting.")
+                    print("!"*50 + "\n")
+                    # Try to close menu if stuck open
+                    try: page.keyboard.press("Escape")
+                    except: pass
 
                 # Start Recording
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 self.start_audio_recording(f"meeting_{timestamp}")
 
-                # Monitor
+                # Monitor Loop
                 while True:
                     if not page.is_visible('button[aria-label="Leave call"]'):
                         print("📴 Meeting ended.")
@@ -219,21 +273,18 @@ class RenaMeetingBot:
         print("🤖 STARTING AI ANALYSIS")
         print("="*60)
         generator = AdaptiveMeetingNotesGenerator()
-        generator.process_meeting(str(self.recording_path))
+        generator.process(str(self.recording_path))
         print("🎉 COMPLETE!")
 
-# if __name__ == "__main__":
-#     try:
-#         url = sys.argv[1] if len(sys.argv) > 1 else ""
-#         if not url:
-#             print("Usage: python rena_bot_pilot.py <MEET_URL>")
-#             sys.exit(1)
-#         RenaMeetingBot().join_google_meet(url)
-#     except KeyboardInterrupt:
-#         print("\n👋 Goodbye!")
+
+# --- ENTRY POINT ---
 
 if __name__ == "__main__":
     try:
+        if len(sys.argv) > 1 and sys.argv[1] == "--setup":
+            RenaMeetingBot().setup_mode()
+            sys.exit(0)
+
         if len(sys.argv) > 1 and sys.argv[1] == "--auto":
             meet_url = wait_for_meet_link_from_clipboard()
             RenaMeetingBot().join_google_meet(meet_url)
@@ -241,9 +292,7 @@ if __name__ == "__main__":
         else:
             url = sys.argv[1] if len(sys.argv) > 1 else ""
             if not url:
-                print("Usage:")
-                print("  python rena_bot_pilot.py <MEET_URL>")
-                print("  python rena_bot_pilot.py --auto")
+                print("Usage: python rena_bot_pilot.py <MEET_URL>")
                 sys.exit(1)
 
             RenaMeetingBot().join_google_meet(url)
